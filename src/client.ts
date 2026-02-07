@@ -1,109 +1,178 @@
-import { DefaultEventHandler } from "./event-handler";
+import { Emitter } from "./events";
 import { EventSourceTransport } from "./transport";
-import type { ConfigValueType } from "./type";
+import { parseConfigValue } from "./value-parser";
+import {
+  ConfigSet,
+  ConfigState,
+  ConfigStateMap,
+  ConfigDirectorContext,
+  ConfigDirectorClientOptions,
+  ConfigDirectorClient,
+  ClientEvents,
+  WatchHandler,
+  ConfigValueType,
+} from "./types";
 
-/**
- * The user's context to be sent to ConfigDirector. This context will be used for targeting
- * rules evaluation.
- */
-type Context = {
-  /**
-   * The user's identifier. This should be a value that uniquely identifies an application
-   * user.
-   * In the case of anonymous users, you could generate a UUID or alternatively not provide
-   * the {@link id} and the SDK will generate a random UUID. However, keep in mind that this
-   * value is used for segmenting users in percentage rollouts, and changes to the {@link id}
-   * could result in the user being assigned to a different percentile.
-   */
-  id?: string;
-
-  /**
-   * The user's display name. This will be shown in the ConfigDirector dashboard and may be
-   * used for targeting rules.
-   */
-  name?: string;
-
-  /**
-   * Any arbitrary traits for the current user. They will be shown in the ConfigDirector
-   * dashboard and may be used for targeting rules.
-   */
-  traits?: { [key: string]: unknown; };
+type WatchHandlerWithOptions<T extends ConfigValueType> = {
+  handler: WatchHandler<T>;
+  defaultValue: T;
+  requestedType: string;
 };
 
-type Metadata = {
-  appVersion?: string;
-  appName?: string;
-};
-
-/**
- * The ConfigDirector SDK client object.
- *
- * Applications should create a single instance of {@link ConfigDirectorClient}, and call
- * {@link initialize} during application initialization.
- *
- * After initialization, to update the user's context, so that targeting rules are evaluated
- * with the updated context, call {@link identify}.
- */
-export class ConfigDirectorClient {
-  private eventHandler: DefaultEventHandler;
+export class DefaultConfigDirectorClient implements ConfigDirectorClient {
+  private configSet: ConfigSet | undefined;
+  private handlersMap: Map<string, WatchHandlerWithOptions<any>[]> = new Map();
   private transport: EventSourceTransport;
+  private eventEmitter = new Emitter<ClientEvents>();
+  private timeout: number = 3_000;
+  private ready = false;
+  private readyPromise: Promise<void> | undefined;
+  private readyResolve: (() => void) | undefined;
 
-  constructor(clientSdkKey: string, metadata?: Metadata & { url?: string }) {
-    this.eventHandler = new DefaultEventHandler();
+  constructor(clientSdkKey: string, clientOptions?: ConfigDirectorClientOptions) {
+    this.timeout = clientOptions?.connection?.timeout ?? 3_000;
     this.transport = new EventSourceTransport({
       clientSdkKey,
-      url: metadata?.url,
-      eventHandler: this.eventHandler,
+      url: clientOptions?.connection?.url,
       metaContext: {
-        sdkVersion: "0.0.1",
+        ...clientOptions?.metadata,
+        sdkVersion: "__VERSION__",
         userAgent: navigator?.userAgent,
       },
     });
+
+    this.transport.on("configSetReceived", (configSet: ConfigSet) => {
+      this.ready = true;
+      this.readyResolve?.();
+      if (!this.configSet || configSet.kind == "full") {
+        this.configSet = configSet;
+        this.eventEmitter.emit("configsUpdated");
+        this.updateWatchers(configSet.configs);
+        console.log(`Replaced the entire configSet, kind is: ${configSet.kind}`);
+      } else {
+        this.configSet.configs = {
+          ...this.configSet.configs,
+          ...configSet.configs,
+        };
+        this.eventEmitter.emit("configsUpdated");
+        this.updateWatchers(configSet.configs);
+        console.log(`Merged the incoming configSet map, kind is: ${configSet.kind}`);
+      }
+      console.log("ConfigState updated: ", this.configSet);
+    });
   }
 
-  /**
-   * Initializes the connection to ConfigDirector to retrieve config evaluations. Until
-   * initialization is successful, all flags will return their default value provided to
-   * {@link subscribe} or {@link getValue}.
-   *
-   * If the connection fails or is interrupted with a transient error (network error,
-   * internal server error, etc) the client will continue to attempt to connect. However,
-   * if the connection fails with a persistent error, like an invalid SDK key, the client will
-   * not attempt to re-connect and an error will be logged to the console or the provided
-   * logger.
-   *
-   * @param context The current user's context to be used to evaluate targeting rules
-   */
-  public async initialize(context: Context) {
+  public async initialize(context?: ConfigDirectorContext) {
     try {
-      await this.transport.connect(context);
+      this.ready = false;
+      this.readyPromise = new Promise<void>((resolve) => {
+        this.readyResolve = resolve;
+      });
+      await this.transport.connect(context ?? {});
+      await Promise.race([
+        this.readyPromise,
+        new Promise<void>((resolve) => {
+          setTimeout(() => resolve(), this.timeout);
+        }),
+      ]);
+      if (!this.ready) {
+        console.warn(
+          `Timed out waiting for initialization after ${this.timeout}ms. The client will continue to retry since there were no fatal errors detected.`,
+        );
+      }
     } catch (error) {
       console.error(error);
-      this.eventHandler.publishDefaultValues();
     }
   }
 
-  public async identify(context: Context) {
+  public async updateContext(context: ConfigDirectorContext) {
     await this.initialize(context);
   }
 
-  public subscribe<T extends ConfigValueType>(
-    configKey: string,
-    defaultValue: T,
-    callback: (msg: T) => void,
-  ) {
-    return this.eventHandler.subscribe(configKey, defaultValue, callback);
+  private updateWatchers(configsMap: ConfigStateMap) {
+    Object.values(configsMap).forEach((v) => this.updateWatchersForConfig(v));
+  }
+
+  private updateWatchersForConfig(configState: ConfigState) {
+    this.handlersMap.get(configState.key)?.forEach((h) => {
+      const value = this.getValueFromConfigState(configState, h.defaultValue);
+      h.handler(value);
+    });
+  }
+
+  public watch<T extends ConfigValueType>(configKey: string, defaultValue: T, callback: WatchHandler<T>) {
+    const handlers = this.handlersMap.get(configKey);
+    const handlerWithOptions = { handler: callback, defaultValue, requestedType: typeof defaultValue };
+    if (handlers) {
+      handlers.push(handlerWithOptions);
+    } else {
+      this.handlersMap.set(configKey, [handlerWithOptions]);
+    }
+
+    return () => this.unwatch(configKey, callback);
+  }
+
+  public unwatch<T extends ConfigValueType>(configKey: string, callback?: WatchHandler<T>) {
+    const handlers = this.handlersMap.get(configKey);
+    if (!handlers) {
+      return;
+    }
+
+    if (callback) {
+      const index = handlers.findIndex((h) => h.handler == callback);
+      if (index >= 0) {
+        handlers?.splice(index, 1);
+      }
+    } else {
+      handlers.splice(0);
+    }
   }
 
   public getValue<T extends ConfigValueType>(configKey: string, defaultValue: T): T {
-    return this.eventHandler.getValue(configKey, defaultValue) ?? defaultValue;
+    const configState = this.configSet?.configs[configKey];
+    if (!configState || !configState.value) {
+      console.log("No config state or value, returning default");
+      return defaultValue;
+    }
+
+    return this.getValueFromConfigState(configState, defaultValue);
+  }
+
+  private getValueFromConfigState<T extends ConfigValueType>(
+    configState: ConfigState | undefined,
+    defaultValue: T,
+  ): T {
+    if (!configState) {
+      return defaultValue;
+    }
+
+    return parseConfigValue<T>(configState, defaultValue);
+  }
+
+  public on(eventName: keyof ClientEvents, handler: (payload: ClientEvents[keyof ClientEvents]) => void) {
+    this.eventEmitter.on(eventName, handler);
+  }
+
+  public off(eventName: keyof ClientEvents, handler?: (payload: ClientEvents[keyof ClientEvents]) => void) {
+    this.eventEmitter.off(eventName, handler);
   }
 
   public clear() {
-    this.eventHandler.clear();
+    this.eventEmitter.clear();
+    this.handlersMap.clear();
+  }
+
+  public unwatchAll() {
+    this.handlersMap.clear();
   }
 
   public close() {
     this.transport.close();
+    this.ready = false;
+  }
+
+  public dispose() {
+    this.clear();
+    this.close();
   }
 }

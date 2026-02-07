@@ -1,12 +1,11 @@
 import { createEventSource, type EventSourceClient } from "eventsource-client";
-import type { SdkGivenContext, SdkMetaContext } from "./options";
-import type { ConfigSetEventHandler } from "./event-handler";
+import type { ConfigDirectorClientOptions, ConfigDirectorContext, ConfigSet, SdkMetaContext } from "./types";
+import { Emitter, EventProvider } from "./events";
 
 export type TransportOptions = {
   clientSdkKey: string;
   url?: string;
-  eventHandler: ConfigSetEventHandler;
-  metaContext: SdkMetaContext;
+  metaContext: ConfigDirectorClientOptions["metadata"] & SdkMetaContext;
 };
 
 export class ConnectionError extends Error {
@@ -21,18 +20,23 @@ export class ConnectionError extends Error {
   }
 }
 
-export class EventSourceTransport {
+export type TransportEvents = {
+  configSetReceived: ConfigSet;
+};
+
+export class EventSourceTransport implements EventProvider<TransportEvents> {
   private eventSource: EventSourceClient | undefined;
   private responseStatus: number | undefined;
   private errorBody: string | undefined;
+  private eventEmitter = new Emitter<TransportEvents>();
 
   constructor(private readonly options: TransportOptions) {
     this.options = options;
   }
 
-  public async connect(context: SdkGivenContext): Promise<EventSourceTransport> {
+  public async connect(context: ConfigDirectorContext): Promise<EventSourceTransport> {
     if (this.eventSource) {
-      this.eventSource.close();
+      this.close();
     }
 
     const customFetch = async (url: string | URL | Request, init?: RequestInit | undefined) => {
@@ -57,8 +61,7 @@ export class EventSourceTransport {
         }),
 
         onMessage: ({ data }) => {
-          console.log("Data: %s", data);
-          this.options.eventHandler.handleConfigSetEvent(JSON.parse(data));
+          this.dispatchMessage(data);
         },
         onConnect: () => {
           if (this.responseStatus && this.isStatusFatal) {
@@ -81,15 +84,36 @@ export class EventSourceTransport {
     });
   }
 
+  private dispatchMessage(data: string) {
+    try {
+      const json = JSON.parse(data);
+      this.eventEmitter.emit("configSetReceived", json);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
   private prepareFatalError(): ConnectionError {
     const headline = this.errorBody ?? `Connection failed with status: ${this.responseStatus}`;
     const message = `${headline}. This is an unrecoverable error, will not attempt to reconnect.`;
-    const status = this.responseStatus!;
+    const status = this.responseStatus ?? 0;
     return new ConnectionError(message, status);
   }
 
   private get isStatusFatal(): boolean {
     return !!this.responseStatus && this.responseStatus >= 400 && this.responseStatus < 500;
+  }
+
+  public on(eventName: keyof TransportEvents, handler: (payload: TransportEvents[keyof TransportEvents]) => void) {
+    this.eventEmitter.on(eventName, handler);
+  }
+
+  public off(eventName: keyof TransportEvents, handler?: ((payload: TransportEvents[keyof TransportEvents]) => void) | undefined) {
+    this.eventEmitter.off(eventName, handler);
+  }
+
+  public clear(): void {
+    this.eventEmitter.clear();
   }
 
   public close() {

@@ -1,8 +1,4 @@
-import type { ConfigState } from "./config";
-
-type EnumLike = { [key: string]: string | number };
-
-export type ConfigValueType = string | number | boolean | URL | EnumLike;
+import type { ConfigState, ConfigValueType } from "./types";
 
 export function parseConfigValue<T extends ConfigValueType>(configState: ConfigState, defaultValue: T): T {
   const value = configState.value;
