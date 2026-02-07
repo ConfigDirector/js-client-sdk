@@ -1,0 +1,47 @@
+{
+  "name": "@configdirector/js-client-sdk",
+  "version": "0.0.3",
+  "description": "Javascript client SDK for ConfigDirector",
+  "license": "ISC",
+  "author": "ConfigDirector",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/configdirector-client.es.js",
+      "require": "./dist/configdirector-client.cjs.js",
+      "default": "./dist/configdirector-client.es.js",
+      "types": "./dist/configdirector-client.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "types": "dist/configdirector-client.d.ts",
+  "browser": "dist/configdirector-client.es.js",
+  "module": "dist/configdirector-client.es.js",
+  "scripts": {
+    "build": "rimraf dist/** && rollup -c rollup.config.js",
+    "clean": "rimraf dist/**",
+    "lint": "eslint .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "eventsource-client": "^1.2.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@rollup/plugin-commonjs": "^29.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^12.3.0",
+    "eslint": "^9.39.2",
+    "globals": "^17.3.0",
+    "prettier": "^3.8.1",
+    "rimraf": "^6.1.2",
+    "rollup": "^4.57.1",
+    "rollup-plugin-dts": "^6.3.0",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0"
+  }
+}
