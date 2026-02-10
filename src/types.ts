@@ -1,8 +1,8 @@
 import { EventProvider } from "./events";
 
-export type EnumLike = { [key: string]: string | number };
+export type ConfigEnumLikeType = { [key: string]: string | number };
 
-export type ConfigValueType = string | number | boolean | object | URL | EnumLike;
+export type ConfigValueType = string | number | boolean | object | URL | ConfigEnumLikeType;
 
 export type ConfigType = "custom" | "boolean" | "string" | "number" | "enum" | "url" | "json";
 
@@ -63,8 +63,8 @@ export type ConfigDirectorClientOptions = {
     appName?: string;
   };
   connection?: {
-    timeout: number;
-    url: string;
+    timeout?: number;
+    url?: string;
   };
 };
 
