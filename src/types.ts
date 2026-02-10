@@ -24,6 +24,18 @@ export type ConfigSet = {
   kind: "full" | "delta";
 };
 
+export type ConfigDirectorLoggingLevel = "debug" | "info" | "warn" | "error" | "off";
+
+export interface ConfigDirectorLogger {
+  debug(message: string, ...args: any): void;
+
+  info(message: string, ...args: any): void;
+
+  warn(message: string, ...args: any): void;
+
+  error(message: string, ...args: any): void;
+}
+
 /**
  * The user's context to be sent to ConfigDirector. This context will be used for targeting
  * rules evaluation.
@@ -66,6 +78,7 @@ export type ConfigDirectorClientOptions = {
     timeout?: number;
     url?: string;
   };
+  logger?: ConfigDirectorLogger;
 };
 
 export type ClientEvents<T = void> = {

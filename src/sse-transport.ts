@@ -1,11 +1,12 @@
 import { createEventSource, type EventSourceClient } from "eventsource-client";
-import type { ConfigDirectorClientOptions, ConfigDirectorContext, ConfigSet, SdkMetaContext } from "./types";
+import type { ConfigDirectorClientOptions, ConfigDirectorContext, ConfigDirectorLogger, ConfigSet, SdkMetaContext } from "./types";
 import { Emitter, EventProvider } from "./events";
 
 export type TransportOptions = {
   clientSdkKey: string;
   url?: string;
   metaContext: ConfigDirectorClientOptions["metadata"] & SdkMetaContext;
+  logger: ConfigDirectorLogger;
 };
 
 export class ConnectionError extends Error {
@@ -25,6 +26,7 @@ export type TransportEvents = {
 };
 
 export class EventSourceTransport implements EventProvider<TransportEvents> {
+  private logger: ConfigDirectorLogger;
   private eventSource: EventSourceClient | undefined;
   private responseStatus: number | undefined;
   private errorBody: string | undefined;
@@ -32,6 +34,7 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
 
   constructor(private readonly options: TransportOptions) {
     this.options = options;
+    this.logger = options.logger;
   }
 
   public async connect(context: ConfigDirectorContext): Promise<EventSourceTransport> {
@@ -68,7 +71,7 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
             this.close();
             reject(this.prepareFatalError());
           } else {
-            console.log("Connected, status: %s", this.responseStatus);
+            this.logger.debug("Connected, status: %s", this.responseStatus);
             resolve(this);
           }
         },
@@ -77,7 +80,7 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
             this.close();
             reject(this.prepareFatalError());
           } else {
-            console.log(`Scheduling reconnect in ${info.delay}. Response status: ${this.responseStatus}`);
+            this.logger.warn(`Scheduling reconnect in ${info.delay}. Response status: ${this.responseStatus}`);
           }
         },
       });

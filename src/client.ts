@@ -1,5 +1,5 @@
 import { Emitter } from "./events";
-import { EventSourceTransport } from "./transport";
+import { EventSourceTransport } from "./sse-transport";
 import { parseConfigValue } from "./value-parser";
 import {
   ConfigSet,
@@ -11,7 +11,9 @@ import {
   ClientEvents,
   WatchHandler,
   ConfigValueType,
+  ConfigDirectorLogger,
 } from "./types";
+import { createDefaultLogger } from "./logger";
 
 type WatchHandlerWithOptions<T extends ConfigValueType> = {
   handler: WatchHandler<T>;
@@ -20,6 +22,7 @@ type WatchHandlerWithOptions<T extends ConfigValueType> = {
 };
 
 export class DefaultConfigDirectorClient implements ConfigDirectorClient {
+  private logger: ConfigDirectorLogger;
   private configSet: ConfigSet | undefined;
   private handlersMap: Map<string, WatchHandlerWithOptions<any>[]> = new Map();
   private transport: EventSourceTransport;
@@ -30,6 +33,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   private readyResolve: (() => void) | undefined;
 
   constructor(clientSdkKey: string, clientOptions?: ConfigDirectorClientOptions) {
+    this.logger = clientOptions?.logger ?? createDefaultLogger();
     this.timeout = clientOptions?.connection?.timeout ?? 3_000;
     this.transport = new EventSourceTransport({
       clientSdkKey,
@@ -39,6 +43,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         sdkVersion: "__VERSION__",
         userAgent: navigator?.userAgent,
       },
+      logger: this.logger,
     });
 
     this.transport.on("configSetReceived", (configSet: ConfigSet) => {
@@ -48,7 +53,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         this.configSet = configSet;
         this.eventEmitter.emit("configsUpdated");
         this.updateWatchers(configSet.configs);
-        console.log(`Replaced the entire configSet, kind is: ${configSet.kind}`);
+        this.logger.debug(`Replaced the entire configSet, kind is: ${configSet.kind}`);
       } else {
         this.configSet.configs = {
           ...this.configSet.configs,
@@ -56,9 +61,9 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         };
         this.eventEmitter.emit("configsUpdated");
         this.updateWatchers(configSet.configs);
-        console.log(`Merged the incoming configSet map, kind is: ${configSet.kind}`);
+        this.logger.debug(`Merged the incoming configSet map, kind is: ${configSet.kind}`);
       }
-      console.log("ConfigState updated: ", this.configSet);
+      this.logger.debug("ConfigState updated: ", this.configSet);
     });
   }
 
@@ -76,12 +81,12 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         }),
       ]);
       if (!this.ready) {
-        console.warn(
+        this.logger.warn(
           `Timed out waiting for initialization after ${this.timeout}ms. The client will continue to retry since there were no fatal errors detected.`,
         );
       }
     } catch (error) {
-      console.error(error);
+      this.logger.error(`An error occurred during initialization: ${error}`, error);
     }
   }
 
@@ -131,11 +136,13 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   public getValue<T extends ConfigValueType>(configKey: string, defaultValue: T): T {
     const configState = this.configSet?.configs[configKey];
     if (!configState || !configState.value) {
-      console.log("No config state or value, returning default");
+      this.logger.debug(`No config state found for '${configKey}', returning default value '${defaultValue}'.`);
       return defaultValue;
     }
 
-    return this.getValueFromConfigState(configState, defaultValue);
+    const value = this.getValueFromConfigState(configState, defaultValue);
+    this.logger.debug(`Evaluated config '${configKey}', returning value '${value}'.`);
+    return value;
   }
 
   private getValueFromConfigState<T extends ConfigValueType>(

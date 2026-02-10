@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createClient } from "../src";
+import { createClient, createConsoleLogger } from "../src";
 import { setupServer } from "msw/node";
 import { http } from "msw";
 
@@ -19,6 +19,7 @@ const message = (data: any) => {
 };
 
 const server = setupServer();
+const logger = createConsoleLogger("debug");
 
 describe("ConfigDirectorClient", () => {
   beforeAll(() => {
@@ -41,7 +42,7 @@ describe("ConfigDirectorClient", () => {
         return buildResponse(stream);
       }),
     );
-    const client = createClient("sdk-key");
+    const client = createClient("sdk-key", { logger });
     await client.initialize();
 
     expect(requestJson).toMatchObject(expect.objectContaining({ clientSdkKey: "sdk-key" }));
@@ -66,7 +67,7 @@ describe("ConfigDirectorClient", () => {
         return buildResponse(stream);
       }),
     );
-    const client = createClient("sdk-key");
+    const client = createClient("sdk-key", { logger });
     await client.initialize();
 
     expect(client.getValue("example-config", "Hello")).toBe("Hello");
@@ -100,7 +101,7 @@ describe("ConfigDirectorClient", () => {
       }),
     );
 
-    const client = createClient("sdk-key");
+    const client = createClient("sdk-key", { logger });
     const subscription = new Promise<string>((resolve) => {
       client.watch("example-config", "DummyDefault", (value) => {
         resolve(value);
@@ -148,7 +149,7 @@ describe("ConfigDirectorClient", () => {
       }),
     );
 
-    const client = createClient("sdk-key");
+    const client = createClient("sdk-key", { logger });
     const subscription = new Promise<number>((resolve) => {
       let counter = 0;
       client.on("configsUpdated", () => {
@@ -189,7 +190,7 @@ describe("ConfigDirectorClient", () => {
       }),
     );
 
-    const client = createClient("sdk-key");
+    const client = createClient("sdk-key", { logger });
 
     await client.initialize();
     expect(client.getValue("example-config", "Hello")).toBe("Hello");

@@ -1,6 +1,6 @@
 {
   "name": "@configdirector/js-client-sdk",
-  "version": "0.0.10",
+  "version": "0.0.13",
   "description": "Javascript client SDK for ConfigDirector",
   "license": "ISC",
   "author": "ConfigDirector",
