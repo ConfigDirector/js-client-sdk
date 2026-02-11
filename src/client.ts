@@ -1,6 +1,6 @@
-import { Emitter } from "./events";
+import { Emitter } from "./event-emitter";
 import { EventSourceTransport } from "./sse-transport";
-import { parseConfigValue } from "./value-parser";
+import { getRequestedType, parseConfigValue } from "./value-parser";
 import {
   ConfigSet,
   ConfigState,
@@ -14,6 +14,9 @@ import {
   ConfigDirectorLogger,
 } from "./types";
 import { createDefaultLogger } from "./logger";
+import { TelemetryEventCollector } from "./telemetry";
+
+const defaultBaseUrl = new URL("https://client-sdk-api.configdirector.com");
 
 type WatchHandlerWithOptions<T extends ConfigValueType> = {
   handler: WatchHandler<T>;
@@ -21,8 +24,19 @@ type WatchHandlerWithOptions<T extends ConfigValueType> = {
   requestedType: string;
 };
 
+export class ConfigDirectorValidationError extends Error {
+  public override readonly name: string = "ValidationError";
+
+  constructor(message: string) {
+    super(message);
+
+    Object.setPrototypeOf(this, ConfigDirectorValidationError.prototype);
+  }
+}
+
 export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   private logger: ConfigDirectorLogger;
+  private usageEventCollector: TelemetryEventCollector;
   private configSet: ConfigSet | undefined;
   private handlersMap: Map<string, WatchHandlerWithOptions<any>[]> = new Map();
   private transport: EventSourceTransport;
@@ -31,13 +45,20 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   private ready = false;
   private readyPromise: Promise<void> | undefined;
   private readyResolve: (() => void) | undefined;
+  private currentContext?: ConfigDirectorContext;
 
   constructor(clientSdkKey: string, clientOptions?: ConfigDirectorClientOptions) {
     this.logger = clientOptions?.logger ?? createDefaultLogger();
     this.timeout = clientOptions?.connection?.timeout ?? 3_000;
+    const baseUrl = this.parseUrl(clientOptions?.connection?.url) ?? defaultBaseUrl;
+    this.usageEventCollector = new TelemetryEventCollector({
+      sdkKey: clientSdkKey,
+      logger: this.logger,
+      baseUrl,
+    });
     this.transport = new EventSourceTransport({
       clientSdkKey,
-      url: clientOptions?.connection?.url,
+      baseUrl,
       metaContext: {
         ...clientOptions?.metadata,
         sdkVersion: "__VERSION__",
@@ -74,6 +95,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         this.readyResolve = resolve;
       });
       await this.transport.connect(context ?? {});
+      this.currentContext = context;
       await Promise.race([
         this.readyPromise,
         new Promise<void>((resolve) => {
@@ -100,12 +122,14 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
 
   private updateWatchersForConfig(configState: ConfigState) {
     this.handlersMap.get(configState.key)?.forEach((h) => {
-      const value = this.getValueFromConfigState(configState, h.defaultValue);
+      const value = this.getValueFromConfigState(configState.key, configState, h.defaultValue);
       h.handler(value);
     });
   }
 
   public watch<T extends ConfigValueType>(configKey: string, defaultValue: T, callback: WatchHandler<T>) {
+    this.validateDefaultValue(defaultValue);
+
     const handlers = this.handlersMap.get(configKey);
     const handlerWithOptions = { handler: callback, defaultValue, requestedType: typeof defaultValue };
     if (handlers) {
@@ -134,26 +158,70 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   }
 
   public getValue<T extends ConfigValueType>(configKey: string, defaultValue: T): T {
-    const configState = this.configSet?.configs[configKey];
-    if (!configState || !configState.value) {
-      this.logger.debug(`No config state found for '${configKey}', returning default value '${defaultValue}'.`);
-      return defaultValue;
-    }
+    this.validateDefaultValue(defaultValue);
 
-    const value = this.getValueFromConfigState(configState, defaultValue);
-    this.logger.debug(`Evaluated config '${configKey}', returning value '${value}'.`);
-    return value;
+    const configState = this.configSet?.configs[configKey];
+    return this.getValueFromConfigState(configKey, configState, defaultValue);
   }
 
   private getValueFromConfigState<T extends ConfigValueType>(
+    configKey: string,
     configState: ConfigState | undefined,
     defaultValue: T,
   ): T {
     if (!configState) {
+      this.logger.debug(
+        `No config state found for '${configKey}', returning default value '${defaultValue}'.`,
+      );
+      this.usageEventCollector.evaluatedConfig({
+        contextId: this.currentContext?.id,
+        key: configKey,
+        defaultValue: defaultValue,
+        requestedType: getRequestedType(defaultValue),
+        evaluatedValue: defaultValue,
+        usedDefault: true,
+        evaluationReason: "config-state-missing",
+      });
       return defaultValue;
     }
 
-    return parseConfigValue<T>(configState, defaultValue);
+    const parseResult = parseConfigValue<T>(configState, defaultValue);
+    this.usageEventCollector.evaluatedConfig({
+      contextId: this.currentContext?.id,
+      key: configKey,
+      defaultValue: defaultValue,
+      requestedType: parseResult.requestedType,
+      evaluatedValue: parseResult.parsedValue,
+      usedDefault: parseResult.usedDefault,
+      evaluationReason: parseResult.reason,
+    });
+    return parseResult.parsedValue;
+  }
+
+  private parseUrl(url: string | undefined): URL | undefined {
+    if (!url) {
+      return;
+    }
+
+    try {
+      return new URL(url);
+    } catch (error) {
+      throw new ConfigDirectorValidationError(`Invalid base URL '${url}'. Parsing failed: ${error}`);
+    }
+  }
+
+  private validateDefaultValue<T extends ConfigValueType>(defaultValue: T) {
+    if (defaultValue === undefined || defaultValue === null) {
+      throw new ConfigDirectorValidationError(
+        "Invalid default value. The default value for a config must be defined and non-null.",
+      );
+    }
+
+    if (typeof defaultValue === "function") {
+      throw new ConfigDirectorValidationError(
+        "Invalid default value. The default value for a config cannot be a function.",
+      );
+    }
   }
 
   public on(eventName: keyof ClientEvents, handler: (payload: ClientEvents[keyof ClientEvents]) => void) {

@@ -1,8 +1,8 @@
-import { EventProvider } from "./events";
+import { EventProvider } from "./event-emitter";
 
 export type ConfigEnumLikeType = { [key: string]: string | number };
 
-export type ConfigValueType = string | number | boolean | object | URL | ConfigEnumLikeType;
+export type ConfigValueType = string | number | boolean | object | ConfigEnumLikeType;
 
 export type ConfigType = "custom" | "boolean" | "string" | "number" | "enum" | "url" | "json";
 
@@ -23,6 +23,15 @@ export type ConfigSet = {
   configs: ConfigStateMap;
   kind: "full" | "delta";
 };
+
+export type EvaluationReason =
+  | "found-match"
+  | "config-state-missing"
+  | "client-not-ready"
+  | "type-mismatch"
+  | "value-missing"
+  | "invalid-number"
+  | "invalid-boolean";
 
 export type ConfigDirectorLoggingLevel = "debug" | "info" | "warn" | "error" | "off";
 

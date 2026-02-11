@@ -1,15 +1,15 @@
 import { createEventSource, type EventSourceClient } from "eventsource-client";
 import type { ConfigDirectorClientOptions, ConfigDirectorContext, ConfigDirectorLogger, ConfigSet, SdkMetaContext } from "./types";
-import { Emitter, EventProvider } from "./events";
+import { Emitter, EventProvider } from "./event-emitter";
 
 export type TransportOptions = {
   clientSdkKey: string;
-  url?: string;
+  baseUrl: URL;
   metaContext: ConfigDirectorClientOptions["metadata"] & SdkMetaContext;
   logger: ConfigDirectorLogger;
 };
 
-export class ConnectionError extends Error {
+export class ConfigDirectorConnectionError extends Error {
   public override readonly name: string = "ConnectionError";
   public readonly status: number;
 
@@ -17,7 +17,7 @@ export class ConnectionError extends Error {
     super(message);
     this.status = status;
 
-    Object.setPrototypeOf(this, ConnectionError.prototype);
+    Object.setPrototypeOf(this, ConfigDirectorConnectionError.prototype);
   }
 }
 
@@ -31,10 +31,12 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
   private responseStatus: number | undefined;
   private errorBody: string | undefined;
   private eventEmitter = new Emitter<TransportEvents>();
+  private url: URL;
 
   constructor(private readonly options: TransportOptions) {
     this.options = options;
     this.logger = options.logger;
+    this.url = new URL("sse", options.baseUrl);
   }
 
   public async connect(context: ConfigDirectorContext): Promise<EventSourceTransport> {
@@ -96,11 +98,11 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
     }
   }
 
-  private prepareFatalError(): ConnectionError {
+  private prepareFatalError(): ConfigDirectorConnectionError {
     const headline = this.errorBody ?? `Connection failed with status: ${this.responseStatus}`;
     const message = `${headline}. This is an unrecoverable error, will not attempt to reconnect.`;
     const status = this.responseStatus ?? 0;
-    return new ConnectionError(message, status);
+    return new ConfigDirectorConnectionError(message, status);
   }
 
   private get isStatusFatal(): boolean {
@@ -123,9 +125,5 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
     this.eventSource?.close();
     this.responseStatus = undefined;
     this.errorBody = undefined;
-  }
-
-  private get url(): string {
-    return this.options.url ?? "https://client-sdk-api.configdirector.com/sse";
   }
 }
