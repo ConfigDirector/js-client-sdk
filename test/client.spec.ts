@@ -3,7 +3,7 @@ import { createClient, createConsoleLogger } from "../src";
 import { setupServer } from "msw/node";
 import { http } from "msw";
 
-const SSE_URL = "https://client-sdk-api.configdirector.com/sse" as const;
+const SSE_URL = "https://client-sdk-api.configdirector.com/sse/v1" as const;
 const buildResponse = (stream: ReadableStream) => {
   return new Response(stream, {
     headers: {

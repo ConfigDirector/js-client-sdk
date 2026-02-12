@@ -1,4 +1,4 @@
-import { DefaultConfigDirectorClient } from "./client";
+import { DefaultConfigDirectorClient } from "./DefaultConfigDirectorClient";
 import { createDefaultLogger } from "./logger";
 import { ConfigDirectorClientOptions, ConfigDirectorClient, ConfigDirectorLoggingLevel } from "./types";
 
@@ -10,6 +10,11 @@ export type {
   ConfigDirectorLogger,
   ConfigDirectorLoggingLevel,
 } from "./types";
+
+export type {
+  ConfigDirectorConnectionError,
+  ConfigDirectorValidationError,
+} from "./errors";
 
 export const createClient = (
   clientSdkKey: string,

@@ -1,4 +1,4 @@
-import { EventProvider } from "./event-emitter";
+import { EventProvider } from "./Emitter";
 
 export type ConfigEnumLikeType = { [key: string]: string | number };
 
@@ -90,8 +90,8 @@ export type ConfigDirectorClientOptions = {
   logger?: ConfigDirectorLogger;
 };
 
-export type ClientEvents<T = void> = {
-  configsUpdated: T;
+export type ClientEvents = {
+  configsUpdated: { keys: string[] };
 };
 
 export type WatchHandler<T extends ConfigValueType> = (message: T) => void;

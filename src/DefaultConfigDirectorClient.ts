@@ -1,5 +1,5 @@
-import { Emitter } from "./event-emitter";
-import { EventSourceTransport } from "./sse-transport";
+import { Emitter } from "./Emitter";
+import { EventSourceTransport } from "./EventSourceTransport";
 import { getRequestedType, parseConfigValue } from "./value-parser";
 import {
   ConfigSet,
@@ -15,6 +15,7 @@ import {
 } from "./types";
 import { createDefaultLogger } from "./logger";
 import { TelemetryEventCollector } from "./telemetry";
+import { ConfigDirectorValidationError } from "./errors";
 
 const defaultBaseUrl = new URL("https://client-sdk-api.configdirector.com");
 
@@ -23,16 +24,6 @@ type WatchHandlerWithOptions<T extends ConfigValueType> = {
   defaultValue: T;
   requestedType: string;
 };
-
-export class ConfigDirectorValidationError extends Error {
-  public override readonly name: string = "ValidationError";
-
-  constructor(message: string) {
-    super(message);
-
-    Object.setPrototypeOf(this, ConfigDirectorValidationError.prototype);
-  }
-}
 
 export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   private logger: ConfigDirectorLogger;
@@ -70,9 +61,10 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
     this.transport.on("configSetReceived", (configSet: ConfigSet) => {
       this.ready = true;
       this.readyResolve?.();
+      const configKeys = Object.keys(configSet.configs);
       if (!this.configSet || configSet.kind == "full") {
         this.configSet = configSet;
-        this.eventEmitter.emit("configsUpdated");
+        this.eventEmitter.emit("configsUpdated", { keys: configKeys });
         this.updateWatchers(configSet.configs);
         this.logger.debug(`Replaced the entire configSet, kind is: ${configSet.kind}`);
       } else {
@@ -80,7 +72,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
           ...this.configSet.configs,
           ...configSet.configs,
         };
-        this.eventEmitter.emit("configsUpdated");
+        this.eventEmitter.emit("configsUpdated", { keys: configKeys });
         this.updateWatchers(configSet.configs);
         this.logger.debug(`Merged the incoming configSet map, kind is: ${configSet.kind}`);
       }
@@ -108,7 +100,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         );
       }
     } catch (error) {
-      this.logger.error(`An error occurred during initialization: ${error}`, error);
+      this.logger.error("An error occurred during initialization: ", error);
     }
   }
 
@@ -224,11 +216,11 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
     }
   }
 
-  public on(eventName: keyof ClientEvents, handler: (payload: ClientEvents[keyof ClientEvents]) => void) {
+  public on<T extends keyof ClientEvents>(eventName: T, handler: (event: ClientEvents[T]) => void): void {
     this.eventEmitter.on(eventName, handler);
   }
 
-  public off(eventName: keyof ClientEvents, handler?: (payload: ClientEvents[keyof ClientEvents]) => void) {
+  public off<T extends keyof ClientEvents>(eventName: T, handler?: (payload: ClientEvents[T]) => void) {
     this.eventEmitter.off(eventName, handler);
   }
 

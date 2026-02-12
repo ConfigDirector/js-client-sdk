@@ -16,7 +16,7 @@ export class EventReporter {
   constructor(options: EventReporterOptions) {
     this.sdkKey = options.sdkKey;
     this.logger = options.logger;
-    this.url = new URL("/telemetry", options.baseUrl);
+    this.url = new URL("telemetry/v1", options.baseUrl);
   }
 
   public async report(

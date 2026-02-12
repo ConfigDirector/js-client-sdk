@@ -1,6 +1,13 @@
 import { createEventSource, type EventSourceClient } from "eventsource-client";
-import type { ConfigDirectorClientOptions, ConfigDirectorContext, ConfigDirectorLogger, ConfigSet, SdkMetaContext } from "./types";
-import { Emitter, EventProvider } from "./event-emitter";
+import type {
+  ConfigDirectorClientOptions,
+  ConfigDirectorContext,
+  ConfigDirectorLogger,
+  ConfigSet,
+  SdkMetaContext,
+} from "./types";
+import { Emitter, EventProvider } from "./Emitter";
+import { ConfigDirectorConnectionError } from "./errors";
 
 export type TransportOptions = {
   clientSdkKey: string;
@@ -9,18 +16,6 @@ export type TransportOptions = {
   logger: ConfigDirectorLogger;
 };
 
-export class ConfigDirectorConnectionError extends Error {
-  public override readonly name: string = "ConnectionError";
-  public readonly status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.status = status;
-
-    Object.setPrototypeOf(this, ConfigDirectorConnectionError.prototype);
-  }
-}
-
 export type TransportEvents = {
   configSetReceived: ConfigSet;
 };
@@ -28,15 +23,13 @@ export type TransportEvents = {
 export class EventSourceTransport implements EventProvider<TransportEvents> {
   private logger: ConfigDirectorLogger;
   private eventSource: EventSourceClient | undefined;
-  private responseStatus: number | undefined;
-  private errorBody: string | undefined;
   private eventEmitter = new Emitter<TransportEvents>();
   private url: URL;
 
   constructor(private readonly options: TransportOptions) {
     this.options = options;
     this.logger = options.logger;
-    this.url = new URL("sse", options.baseUrl);
+    this.url = new URL("sse/v1", options.baseUrl);
   }
 
   public async connect(context: ConfigDirectorContext): Promise<EventSourceTransport> {
@@ -44,11 +37,14 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
       this.close();
     }
 
+    let responseStatus: number | undefined = undefined;
+    let errorBody: string | undefined = undefined;
+
     const customFetch = async (url: string | URL | Request, init?: RequestInit | undefined) => {
       const response = await fetch(url, init);
-      this.responseStatus = response.status;
+      responseStatus = response.status;
       if (!response.ok) {
-        this.errorBody = await response.text();
+        errorBody = await response.text();
       }
       return response;
     };
@@ -69,20 +65,22 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
           this.dispatchMessage(data);
         },
         onConnect: () => {
-          if (this.responseStatus && this.isStatusFatal) {
+          if (responseStatus && this.isStatusFatal(responseStatus)) {
             this.close();
-            reject(this.prepareFatalError());
+            reject(this.prepareFatalError(responseStatus, errorBody));
           } else {
-            this.logger.debug("Connected, status: %s", this.responseStatus);
+            this.logger.debug("Connected, status: %s", responseStatus);
             resolve(this);
           }
         },
         onScheduleReconnect: (info: { delay: number }) => {
-          if (this.responseStatus && this.isStatusFatal) {
+          if (responseStatus && this.isStatusFatal(responseStatus)) {
             this.close();
-            reject(this.prepareFatalError());
+            reject(this.prepareFatalError(responseStatus, errorBody));
           } else {
-            this.logger.warn(`Scheduling reconnect in ${info.delay}. Response status: ${this.responseStatus}`);
+            this.logger.warn(
+              `Scheduling reconnect in ${info.delay}. Response status: ${responseStatus}`,
+            );
           }
         },
       });
@@ -98,23 +96,30 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
     }
   }
 
-  private prepareFatalError(): ConfigDirectorConnectionError {
-    const headline = this.errorBody ?? `Connection failed with status: ${this.responseStatus}`;
-    const message = `${headline}. This is an unrecoverable error, will not attempt to reconnect.`;
-    const status = this.responseStatus ?? 0;
+  private prepareFatalError(responseStatus: number, errorBody: string | undefined): ConfigDirectorConnectionError {
+    const status = responseStatus ?? 0;
+    const headline = `Connection failed with status: ${responseStatus ?? "unknown"}`;
+    const serverBody = (errorBody?.trim()?.length ?? 0) > 0 ? ` (${errorBody})` : "";
+    const message = `${headline}${serverBody}. This is an unrecoverable error, will not attempt to reconnect.`;
     return new ConfigDirectorConnectionError(message, status);
   }
 
-  private get isStatusFatal(): boolean {
-    return !!this.responseStatus && this.responseStatus >= 400 && this.responseStatus < 500;
+  private isStatusFatal(status: number | undefined): boolean {
+    return !!status && status >= 400 && status < 500;
   }
 
-  public on(eventName: keyof TransportEvents, handler: (payload: TransportEvents[keyof TransportEvents]) => void) {
-    this.eventEmitter.on(eventName, handler);
+  public on<TName extends keyof TransportEvents>(
+    name: TName,
+    handler: (payload: TransportEvents[TName]) => void,
+  ): void {
+    this.eventEmitter.on(name, handler);
   }
 
-  public off(eventName: keyof TransportEvents, handler?: ((payload: TransportEvents[keyof TransportEvents]) => void) | undefined) {
-    this.eventEmitter.off(eventName, handler);
+  public off<TName extends keyof TransportEvents>(
+    name: TName,
+    handler?: ((payload: TransportEvents[TName]) => void) | undefined,
+  ): void {
+    this.eventEmitter.off(name, handler);
   }
 
   public clear(): void {
@@ -123,7 +128,5 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
 
   public close() {
     this.eventSource?.close();
-    this.responseStatus = undefined;
-    this.errorBody = undefined;
   }
 }
