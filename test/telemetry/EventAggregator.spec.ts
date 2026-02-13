@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { EvaluatedConfigEvent } from "../src/telemetry/telemetry-events";
-import { EventQueue } from "../src/telemetry/EventQueue";
-import { EventAggregator } from "../src/telemetry/EventAggregator";
+import { EvaluatedConfigEvent } from "../../src/telemetry/telemetry-events";
+import { EventQueue } from "../../src/telemetry/EventQueue";
+import { EventAggregator } from "../../src/telemetry/EventAggregator";
 
 describe("EventAggregator", () => {
   const aggregator = new EventAggregator();

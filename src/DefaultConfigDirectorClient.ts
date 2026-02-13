@@ -39,13 +39,14 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   private readyPromise: Promise<void> | undefined;
   private readyResolve: (() => void) | undefined;
   private currentContext?: ConfigDirectorContext;
+  private streaming: boolean;
 
   constructor(clientSdkKey: string, clientOptions?: ConfigDirectorClientOptions) {
     this.logger = clientOptions?.logger ?? createDefaultLogger();
     this.timeout = clientOptions?.connection?.timeout ?? 3_000;
     const baseUrl = this.parseUrl(clientOptions?.connection?.url) ?? defaultBaseUrl;
-    const transportConstructor =
-      clientOptions?.connection?.streaming === false ? PullTransport : StreamingTransport;
+    this.streaming = clientOptions?.connection?.streaming === false ? false : true;
+    const transportConstructor = this.streaming ? StreamingTransport : PullTransport;
     this.usageEventCollector = new TelemetryEventCollector({
       sdkKey: clientSdkKey,
       logger: this.logger,
@@ -70,7 +71,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         this.configSet = configSet;
         this.eventEmitter.emit("configsUpdated", { keys: configKeys });
         this.updateWatchers(configSet.configs);
-        this.logger.debug(`Replaced the entire configSet, kind is: ${configSet.kind}`);
+        this.logger.debug(`[ConfigDirectorClient] Replaced the entire configSet, kind is: ${configSet.kind}`);
       } else {
         this.configSet.configs = {
           ...this.configSet.configs,
@@ -78,13 +79,23 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         };
         this.eventEmitter.emit("configsUpdated", { keys: configKeys });
         this.updateWatchers(configSet.configs);
-        this.logger.debug(`Merged the incoming configSet map, kind is: ${configSet.kind}`);
+        this.logger.debug(
+          `[ConfigDirectorClient] Merged the incoming configSet map, kind is: ${configSet.kind}`,
+        );
       }
-      this.logger.debug("ConfigState updated: ", this.configSet);
+      this.logger.debug("[ConfigDirectorClient] ConfigState updated: ", this.configSet);
     });
   }
 
   public async initialize(context?: ConfigDirectorContext) {
+    await this.connectToTransport(context, "initialization");
+  }
+
+  public async updateContext(context: ConfigDirectorContext) {
+    await this.connectToTransport(context, "context update");
+  }
+
+  private async connectToTransport(context: ConfigDirectorContext | undefined, caller: string) {
     try {
       this.ready = false;
       this.readyPromise = new Promise<void>((resolve) => {
@@ -99,17 +110,16 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         }),
       ]);
       if (!this.ready) {
+        const warningDetails = this.streaming
+          ? "The client will continue to retry since there were no fatal errors detected. Configs will return the default value until the connection succeeds."
+          : "Since the client was configured without streaming, configs may not update and always return the default value.";
         this.logger.warn(
-          `Timed out waiting for initialization after ${this.timeout}ms. The client will continue to retry since there were no fatal errors detected.`,
+          `[ConfigDirectorClient] Timed out waiting for ${caller} after ${this.timeout}ms. ${warningDetails}`,
         );
       }
     } catch (error) {
-      this.logger.error("An error occurred during initialization: ", error);
+      this.logger.error(`[ConfigDirectorClient] An error occurred during ${caller}: `, error);
     }
-  }
-
-  public async updateContext(context: ConfigDirectorContext) {
-    await this.initialize(context);
   }
 
   private updateWatchers(configsMap: ConfigStateMap) {
@@ -167,7 +177,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   ): T {
     if (!configState) {
       this.logger.debug(
-        `No config state found for '${configKey}', returning default value '${defaultValue}'.`,
+        `[ConfigDirectorClient] No config state found for '${configKey}', returning default value '${defaultValue}'`,
       );
       this.usageEventCollector.evaluatedConfig({
         contextId: this.currentContext?.id,
@@ -191,6 +201,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
       usedDefault: parseResult.usedDefault,
       evaluationReason: parseResult.reason,
     });
+    this.logger.debug(`[ConfigDirectorClient] Evaluated '${configKey}' to '${parseResult.parsedValue}'`);
     return parseResult.parsedValue;
   }
 

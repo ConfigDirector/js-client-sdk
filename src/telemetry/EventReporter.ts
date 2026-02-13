@@ -1,6 +1,12 @@
 import { isFetchErrorFatal } from "../errors";
 import { ConfigDirectorLogger } from "../types";
-import { AggregatedEventList, DiscreteEventList, EventReport, ReporterResponse } from "./types";
+import {
+  AggregatedEventList,
+  DiscreteEventList,
+  DroppedEvents,
+  EventReport,
+  ReporterResponse,
+} from "./types";
 
 export type EventReporterOptions = {
   sdkKey: string;
@@ -20,10 +26,15 @@ export class EventReporter {
     this.url = new URL("telemetry/v1", options.baseUrl);
   }
 
-  public async report(
-    discreteEvents: DiscreteEventList,
-    aggregatedEvents: AggregatedEventList,
-  ): Promise<ReporterResponse> {
+  public async report({
+    discreteEvents,
+    aggregatedEvents,
+    droppedEvents,
+  }: {
+    discreteEvents: DiscreteEventList;
+    aggregatedEvents: AggregatedEventList;
+    droppedEvents?: DroppedEvents;
+  }): Promise<ReporterResponse> {
     if (!this.executeRequests) {
       return { success: false, fatalError: true };
     }
@@ -32,6 +43,7 @@ export class EventReporter {
       clientSdkKey: this.sdkKey,
       discreteEvents,
       aggregatedEvents,
+      droppedEvents,
     };
     if (this.isReportEmpty(eventReport)) {
       return { success: true, fatalError: false };
@@ -46,18 +58,38 @@ export class EventReporter {
 
   private isReportEmpty(eventReport: EventReport) {
     return (
-      this.isEventListEmpty(eventReport.discreteEvents) && this.isEventListEmpty(eventReport.aggregatedEvents)
+      this.isEventListEmpty(eventReport.discreteEvents) &&
+      this.isEventListEmpty(eventReport.aggregatedEvents) &&
+      this.isDroppedEventsEmpty(eventReport.droppedEvents)
     );
   }
 
-  private isEventListEmpty<T extends Record<string | symbol, any[]>>(eventList: T) {
+  private isDroppedEventsEmpty(droppedEvents?: DroppedEvents): boolean {
+    if (!droppedEvents) {
+      return true;
+    }
+    const keys = Object.keys(droppedEvents);
+    if (keys.length == 0) {
+      return true;
+    }
+
+    for (const key of keys) {
+      if ((droppedEvents[key] ?? 0) > 0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private isEventListEmpty<T extends Record<string | symbol, any[]>>(eventList: T): boolean {
     const keys = Object.keys(eventList);
     if (keys.length == 0) {
       return true;
     }
 
     for (const key of keys) {
-      if (eventList[key].length > 0) {
+      if ((eventList[key]?.length ?? 0) > 0) {
         return false;
       }
     }
