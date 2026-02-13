@@ -1,5 +1,5 @@
 import { Emitter } from "./Emitter";
-import { EventSourceTransport } from "./EventSourceTransport";
+import { StreamingTransport } from "./StreamingTransport";
 import { getRequestedType, parseConfigValue } from "./value-parser";
 import {
   ConfigSet,
@@ -12,10 +12,12 @@ import {
   WatchHandler,
   ConfigValueType,
   ConfigDirectorLogger,
+  Transport,
 } from "./types";
 import { createDefaultLogger } from "./logger";
 import { TelemetryEventCollector } from "./telemetry";
 import { ConfigDirectorValidationError } from "./errors";
+import { PullTransport } from "./PullTransport";
 
 const defaultBaseUrl = new URL("https://client-sdk-api.configdirector.com");
 
@@ -30,7 +32,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   private usageEventCollector: TelemetryEventCollector;
   private configSet: ConfigSet | undefined;
   private handlersMap: Map<string, WatchHandlerWithOptions<any>[]> = new Map();
-  private transport: EventSourceTransport;
+  private transport: Transport;
   private eventEmitter = new Emitter<ClientEvents>();
   private timeout: number = 3_000;
   private ready = false;
@@ -42,12 +44,14 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
     this.logger = clientOptions?.logger ?? createDefaultLogger();
     this.timeout = clientOptions?.connection?.timeout ?? 3_000;
     const baseUrl = this.parseUrl(clientOptions?.connection?.url) ?? defaultBaseUrl;
+    const transportConstructor =
+      clientOptions?.connection?.streaming === false ? PullTransport : StreamingTransport;
     this.usageEventCollector = new TelemetryEventCollector({
       sdkKey: clientSdkKey,
       logger: this.logger,
       baseUrl,
     });
-    this.transport = new EventSourceTransport({
+    this.transport = new transportConstructor({
       clientSdkKey,
       baseUrl,
       metaContext: {

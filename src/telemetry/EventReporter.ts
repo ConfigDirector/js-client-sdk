@@ -1,3 +1,4 @@
+import { isFetchErrorFatal } from "../errors";
 import { ConfigDirectorLogger } from "../types";
 import { AggregatedEventList, DiscreteEventList, EventReport, ReporterResponse } from "./types";
 
@@ -79,7 +80,7 @@ export class EventReporter {
       }
       return { success: fetchResponse.ok, fatalError: isFatalStatus };
     } catch (fetchError) {
-      const response = this.interpretFetchError(fetchError);
+      const response = { success: false, fatalError: isFetchErrorFatal(fetchError) };
       if (response.fatalError) {
         this.logger.warn(
           `[EventReporter] Fatal error attempting to send telemetry data: ${fetchError}. No more telemetry data will be sent.`,
@@ -87,19 +88,5 @@ export class EventReporter {
       }
       return response;
     }
-  }
-
-  private interpretFetchError(fetchError: any): ReporterResponse {
-    let isFatal = false;
-    if (fetchError instanceof DOMException) {
-      const domError = fetchError as DOMException;
-      if (domError.name === "NotAllowedError") {
-        isFatal = true;
-      }
-    } else if (fetchError instanceof TypeError) {
-      isFatal = true;
-    }
-
-    return { success: false, fatalError: isFatal };
   }
 }

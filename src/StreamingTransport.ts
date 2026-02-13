@@ -1,26 +1,15 @@
 import { createEventSource, type EventSourceClient } from "eventsource-client";
 import type {
-  ConfigDirectorClientOptions,
   ConfigDirectorContext,
   ConfigDirectorLogger,
-  ConfigSet,
-  SdkMetaContext,
+  Transport,
+  TransportEvents,
+  TransportOptions,
 } from "./types";
-import { Emitter, EventProvider } from "./Emitter";
+import { Emitter } from "./Emitter";
 import { ConfigDirectorConnectionError } from "./errors";
 
-export type TransportOptions = {
-  clientSdkKey: string;
-  baseUrl: URL;
-  metaContext: ConfigDirectorClientOptions["metadata"] & SdkMetaContext;
-  logger: ConfigDirectorLogger;
-};
-
-export type TransportEvents = {
-  configSetReceived: ConfigSet;
-};
-
-export class EventSourceTransport implements EventProvider<TransportEvents> {
+export class StreamingTransport implements Transport {
   private logger: ConfigDirectorLogger;
   private eventSource: EventSourceClient | undefined;
   private eventEmitter = new Emitter<TransportEvents>();
@@ -32,7 +21,7 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
     this.url = new URL("sse/v1", options.baseUrl);
   }
 
-  public async connect(context: ConfigDirectorContext): Promise<EventSourceTransport> {
+  public async connect(context: ConfigDirectorContext): Promise<this> {
     if (this.eventSource) {
       this.close();
     }
@@ -49,7 +38,7 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
       return response;
     };
 
-    return new Promise<EventSourceTransport>((resolve, reject) => {
+    return new Promise<this>((resolve, reject) => {
       this.eventSource = createEventSource({
         url: this.url,
         fetch: customFetch,
@@ -69,7 +58,7 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
             this.close();
             reject(this.prepareFatalError(responseStatus, errorBody));
           } else {
-            this.logger.debug("Connected, status: %s", responseStatus);
+            this.logger.debug("[EventSourceTransport] Connected, status: %s", responseStatus);
             resolve(this);
           }
         },
@@ -78,10 +67,11 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
             this.close();
             reject(this.prepareFatalError(responseStatus, errorBody));
           } else {
-            this.logger.warn(
-              `Scheduling reconnect in ${info.delay}. Response status: ${responseStatus}`,
-            );
+            this.logger.warn(`[EventSourceTransport] Scheduling reconnect in ${info.delay}. Response status: ${responseStatus}`);
           }
+        },
+        onDisconnect: () => {
+          this.logger.debug("[EventSourceTransport] Disconnected");
         },
       });
     });
@@ -92,11 +82,14 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
       const json = JSON.parse(data);
       this.eventEmitter.emit("configSetReceived", json);
     } catch (error) {
-      console.error(error);
+      this.logger.error("[EventSourceTransport] Error parsing and dispatching config data update: ", error);
     }
   }
 
-  private prepareFatalError(responseStatus: number, errorBody: string | undefined): ConfigDirectorConnectionError {
+  private prepareFatalError(
+    responseStatus: number,
+    errorBody: string | undefined,
+  ): ConfigDirectorConnectionError {
     const status = responseStatus ?? 0;
     const headline = `Connection failed with status: ${responseStatus ?? "unknown"}`;
     const serverBody = (errorBody?.trim()?.length ?? 0) > 0 ? ` (${errorBody})` : "";
@@ -128,5 +121,10 @@ export class EventSourceTransport implements EventProvider<TransportEvents> {
 
   public close() {
     this.eventSource?.close();
+  }
+
+  public dispose(): void {
+    this.close();
+    this.clear();
   }
 }

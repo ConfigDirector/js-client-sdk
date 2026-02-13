@@ -86,6 +86,7 @@ export type ConfigDirectorClientOptions = {
   connection?: {
     timeout?: number;
     url?: string;
+    streaming?: boolean;
   };
   logger?: ConfigDirectorLogger;
 };
@@ -136,5 +137,22 @@ export interface ConfigDirectorClient extends EventProvider<ClientEvents> {
 
   unwatchAll(): void;
 
+  dispose(): void;
+}
+
+export type TransportOptions = {
+  clientSdkKey: string;
+  baseUrl: URL;
+  metaContext: ConfigDirectorClientOptions["metadata"] & SdkMetaContext;
+  logger: ConfigDirectorLogger;
+};
+
+export type TransportEvents = {
+  configSetReceived: ConfigSet;
+};
+
+export interface Transport extends EventProvider<TransportEvents> {
+  connect(context: ConfigDirectorContext): Promise<this>;
+  close(): void;
   dispose(): void;
 }

@@ -1,8 +1,8 @@
 export class ConfigDirectorConnectionError extends Error {
   public override readonly name: string = "ConnectionError";
-  public readonly status: number;
+  public readonly status?: number;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status?: number) {
     super(message);
     this.status = status;
 
@@ -19,3 +19,16 @@ export class ConfigDirectorValidationError extends Error {
     Object.setPrototypeOf(this, ConfigDirectorValidationError.prototype);
   }
 }
+
+export const isFetchErrorFatal = (fetchError: any): boolean => {
+  if (fetchError instanceof DOMException) {
+    const domError = fetchError as DOMException;
+    if (domError.name === "NotAllowedError") {
+      return true;
+    }
+  } else if (fetchError instanceof TypeError) {
+    return true;
+  }
+
+  return false;
+};
