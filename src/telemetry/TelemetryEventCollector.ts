@@ -27,7 +27,16 @@ export class TelemetryEventCollector {
     this.reporter = new EventReporter(options);
     this.flushIntervalDelay = 30_000;
     const initialDelay = 5_000;
-    this.flushTimeout = setTimeout(async () => await this.flush(), initialDelay);
+    this.flushTimeout = setTimeout(() => this.flushAndScheduleNext(), initialDelay);
+    try {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          this.flush();
+        }
+      });
+    } catch (error) {
+      this.logger.warn("[TelemetryEventCollector] Could not configure 'visibilitychange' listener: ", error);
+    }
   }
 
   public evaluatedConfig<T extends ConfigValueType>(event: EvaluatedConfigEvent<T>): void {
@@ -65,9 +74,22 @@ export class TelemetryEventCollector {
     return value.toString().slice(0, CONFIG_VALUE_MAX_LENGTH);
   }
 
-  public async flush() {
+  private flushAndScheduleNext() {
+    const response = this.flush();
+    if (response.fatalError) {
+      this.collectEvents = false;
+      this.close();
+      this.logger.warn(
+        "[TelemetryEventCollector] Received a fatal error from telemetry collection. No longer collecting events.",
+      );
+    } else {
+      this.flushTimeout = setTimeout(() => this.flushAndScheduleNext(), this.flushIntervalDelay);
+    }
+  }
+
+  private flush() {
     const evaluationSnapshot = this.evaluationEventQueue.takeSnapshot();
-    const response = await this.reporter.report({
+    const response = this.reporter.report({
       discreteEvents: {},
       aggregatedEvents: {
         evaluatedConfig: this.aggregator.aggregate(evaluationSnapshot),
@@ -76,20 +98,13 @@ export class TelemetryEventCollector {
         evaluatedConfig: evaluationSnapshot.droppedCount,
       },
     });
-    if (response.fatalError) {
-      this.collectEvents = false;
-      this.close();
-      this.logger.warn(
-        "[EventCollector] Received a fatal error from telemetry collection. No longer collecting events.",
-      );
-    } else {
-      this.flushTimeout = setTimeout(async () => await this.flush(), this.flushIntervalDelay);
-    }
+    return response;
   }
 
   public close() {
     this.collectEvents = false;
     clearTimeout(this.flushTimeout);
+    this.flush();
     this.evaluationEventQueue.clear();
   }
 

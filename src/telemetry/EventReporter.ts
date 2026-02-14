@@ -1,4 +1,3 @@
-import { isFetchErrorFatal } from "../errors";
 import { ConfigDirectorLogger } from "../types";
 import {
   AggregatedEventList,
@@ -26,7 +25,7 @@ export class EventReporter {
     this.url = new URL("telemetry/v1", options.baseUrl);
   }
 
-  public async report({
+  public report({
     discreteEvents,
     aggregatedEvents,
     droppedEvents,
@@ -34,7 +33,7 @@ export class EventReporter {
     discreteEvents: DiscreteEventList;
     aggregatedEvents: AggregatedEventList;
     droppedEvents?: DroppedEvents;
-  }): Promise<ReporterResponse> {
+  }): ReporterResponse {
     if (!this.executeRequests) {
       return { success: false, fatalError: true };
     }
@@ -49,7 +48,7 @@ export class EventReporter {
       return { success: true, fatalError: false };
     }
 
-    const response = await this.sendReport(eventReport);
+    const response = this.sendReport(eventReport);
     if (response.fatalError) {
       this.executeRequests = false;
     }
@@ -97,28 +96,15 @@ export class EventReporter {
     return true;
   }
 
-  private async sendReport(eventReport: EventReport): Promise<ReporterResponse> {
+  private sendReport(eventReport: EventReport): ReporterResponse {
     try {
-      const fetchResponse = await fetch(this.url, {
-        method: "post",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(eventReport),
-      });
-      const isFatalStatus = fetchResponse.status >= 400 && fetchResponse.status <= 499;
-      if (isFatalStatus) {
-        this.logger.warn(
-          `[EventReporter] Received a fatal response from the telemetry endpoint (${fetchResponse.status}). No more telemetry data will be sent.`,
-        );
-      }
-      return { success: fetchResponse.ok, fatalError: isFatalStatus };
-    } catch (fetchError) {
-      const response = { success: false, fatalError: isFetchErrorFatal(fetchError) };
-      if (response.fatalError) {
-        this.logger.warn(
-          `[EventReporter] Fatal error attempting to send telemetry data: ${fetchError}. No more telemetry data will be sent.`,
-        );
-      }
-      return response;
+      const result = navigator.sendBeacon(this.url, JSON.stringify(eventReport));
+      return { success: result, fatalError: false };
+    } catch (beaconError) {
+      this.logger.warn(
+        `[EventReporter] Fatal error attempting to send telemetry data: ${beaconError}. No more telemetry data will be sent.`,
+      );
+      return { success: false, fatalError: true };
     }
   }
 }
