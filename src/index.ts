@@ -1,6 +1,11 @@
 import { DefaultConfigDirectorClient } from "./DefaultConfigDirectorClient";
 import { createDefaultLogger } from "./logger";
-import { ConfigDirectorClientOptions, ConfigDirectorClient, ConfigDirectorLoggingLevel } from "./types";
+import {
+  ConfigDirectorClientOptions,
+  ConfigDirectorClient,
+  ConfigDirectorLoggingLevel,
+  ConfigDirectorLogMessageDecorator,
+} from "./types";
 
 export type {
   ConfigDirectorClient,
@@ -9,12 +14,10 @@ export type {
   ConfigValueType,
   ConfigDirectorLogger,
   ConfigDirectorLoggingLevel,
+  ConfigDirectorLogMessageDecorator,
 } from "./types";
 
-export type {
-  ConfigDirectorConnectionError,
-  ConfigDirectorValidationError,
-} from "./errors";
+export type { ConfigDirectorConnectionError, ConfigDirectorValidationError } from "./errors";
 
 export const createClient = (
   clientSdkKey: string,
@@ -23,6 +26,9 @@ export const createClient = (
   return new DefaultConfigDirectorClient(clientSdkKey, clientOptions);
 };
 
-export const createConsoleLogger = (level: ConfigDirectorLoggingLevel) => {
-  return createDefaultLogger(level);
+export const createConsoleLogger = (
+  level: ConfigDirectorLoggingLevel,
+  messageDecorator?: ConfigDirectorLogMessageDecorator,
+) => {
+  return createDefaultLogger(level, messageDecorator);
 };

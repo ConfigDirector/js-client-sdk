@@ -45,6 +45,10 @@ export interface ConfigDirectorLogger {
   error(message: string, ...args: any): void;
 }
 
+export interface ConfigDirectorLogMessageDecorator {
+  decorateMessage(message: string): string;
+}
+
 /**
  * The user's context to be sent to ConfigDirector. This context will be used for targeting
  * rules evaluation.
@@ -91,8 +95,11 @@ export type ConfigDirectorClientOptions = {
   logger?: ConfigDirectorLogger;
 };
 
+export type ClientConnectAction = "initialization" | "context update";
+
 export type ClientEvents = {
   configsUpdated: { keys: string[] };
+  clientReady: { action: ClientConnectAction };
 };
 
 export type WatchHandler<T extends ConfigValueType> = (message: T) => void;
@@ -128,6 +135,8 @@ export interface ConfigDirectorClient extends EventProvider<ClientEvents> {
    * @param context The current user's context to be used for evaluating targeting rules (required).
    */
   updateContext(context: ConfigDirectorContext): Promise<void>;
+
+  get isReady(): boolean;
 
   getValue<T extends ConfigValueType>(configKey: string, defaultValue: T): T;
 

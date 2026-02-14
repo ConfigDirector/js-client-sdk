@@ -1,5 +1,5 @@
 export class ConfigDirectorConnectionError extends Error {
-  public override readonly name: string = "ConnectionError";
+  public override readonly name: string = "ConfigDirectorConnectionError";
   public readonly status?: number;
 
   constructor(message: string, status?: number) {
@@ -11,7 +11,7 @@ export class ConfigDirectorConnectionError extends Error {
 }
 
 export class ConfigDirectorValidationError extends Error {
-  public override readonly name: string = "ValidationError";
+  public override readonly name: string = "ConfigDirectorValidationError";
 
   constructor(message: string) {
     super(message);

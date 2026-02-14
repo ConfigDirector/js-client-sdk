@@ -1,4 +1,4 @@
-import { ConfigDirectorLogger, ConfigDirectorLoggingLevel } from "./types";
+import { ConfigDirectorLogger, ConfigDirectorLogMessageDecorator, ConfigDirectorLoggingLevel } from "./types";
 
 const LEVELS: Record<ConfigDirectorLoggingLevel, number> = {
   off: -1,
@@ -38,32 +38,44 @@ export class DefaultConsoleLogger implements ConfigDirectorLogger {
   }
 }
 
-export class ConfigDirectorLoggerDecorator implements ConfigDirectorLogger {
-  constructor(private readonly logger: ConfigDirectorLogger) {
-    this.logger = logger;
-  }
-
-  debug(message: string, ...args: any): void {
-    this.logger.debug(this.decorateMessage(message), ...args);
-  }
-
-  info(message: string, ...args: any): void {
-    this.logger.info(this.decorateMessage(message), ...args);
-  }
-
-  warn(message: string, ...args: any): void {
-    this.logger.warn(this.decorateMessage(message), ...args);
-  }
-
-  error(message: string, ...args: any): void {
-    this.logger.error(this.decorateMessage(message), ...args);
-  }
-
-  private decorateMessage(message: string): string {
+class LogMessageDecorator implements ConfigDirectorLogMessageDecorator {
+  decorateMessage(message: string): string {
     return `[ConfigDirector:js-client-sdk] ${message}`;
   }
 }
 
-export const createDefaultLogger = (level?: ConfigDirectorLoggingLevel) => {
-  return new ConfigDirectorLoggerDecorator(new DefaultConsoleLogger(level));
+export class ConfigDirectorLoggerDecorator implements ConfigDirectorLogger {
+  constructor(
+    private readonly logger: ConfigDirectorLogger,
+    private readonly decorator: ConfigDirectorLogMessageDecorator,
+  ) {
+    this.logger = logger;
+    this.decorator = decorator;
+  }
+
+  debug(message: string, ...args: any): void {
+    this.logger.debug(this.decorator.decorateMessage(message), ...args);
+  }
+
+  info(message: string, ...args: any): void {
+    this.logger.info(this.decorator.decorateMessage(message), ...args);
+  }
+
+  warn(message: string, ...args: any): void {
+    this.logger.warn(this.decorator.decorateMessage(message), ...args);
+  }
+
+  error(message: string, ...args: any): void {
+    this.logger.error(this.decorator.decorateMessage(message), ...args);
+  }
+}
+
+export const createDefaultLogger = (
+  level?: ConfigDirectorLoggingLevel,
+  messageDecorator?: ConfigDirectorLogMessageDecorator,
+) => {
+  return new ConfigDirectorLoggerDecorator(
+    new DefaultConsoleLogger(level),
+    messageDecorator ?? new LogMessageDecorator(),
+  );
 };

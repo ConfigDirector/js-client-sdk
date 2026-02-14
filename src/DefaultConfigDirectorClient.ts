@@ -13,6 +13,7 @@ import {
   ConfigValueType,
   ConfigDirectorLogger,
   Transport,
+  ClientConnectAction,
 } from "./types";
 import { createDefaultLogger } from "./logger";
 import { TelemetryEventCollector } from "./telemetry";
@@ -64,7 +65,6 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
     });
 
     this.transport.on("configSetReceived", (configSet: ConfigSet) => {
-      this.ready = true;
       this.readyResolve?.();
       const configKeys = Object.keys(configSet.configs);
       if (!this.configSet || configSet.kind == "full") {
@@ -95,11 +95,14 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
     await this.connectToTransport(context, "context update");
   }
 
-  private async connectToTransport(context: ConfigDirectorContext | undefined, caller: string) {
+  private async connectToTransport(context: ConfigDirectorContext | undefined, caller: ClientConnectAction) {
     try {
       this.ready = false;
       this.readyPromise = new Promise<void>((resolve) => {
         this.readyResolve = resolve;
+      }).then(() => {
+        this.ready = true;
+        this.eventEmitter.emit("clientReady", { action: caller });
       });
       await this.transport.connect(context ?? {});
       this.currentContext = context;
@@ -229,6 +232,10 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         "Invalid default value. The default value for a config cannot be a function.",
       );
     }
+  }
+
+  public get isReady(): boolean {
+    return this.ready;
   }
 
   public on<T extends keyof ClientEvents>(eventName: T, handler: (event: ClientEvents[T]) => void): void {
