@@ -21,7 +21,7 @@ export class StreamingTransport implements Transport {
     this.url = new URL("sse/v1", options.baseUrl);
   }
 
-  public async connect(context: ConfigDirectorContext): Promise<this> {
+  public async connect(context: ConfigDirectorContext, timeout: number): Promise<this> {
     if (this.eventSource) {
       this.close();
     }
@@ -38,7 +38,7 @@ export class StreamingTransport implements Transport {
       return response;
     };
 
-    return new Promise<this>((resolve, reject) => {
+    const eventSourcePromise = new Promise<this>((resolve, reject) => {
       this.eventSource = createEventSource({
         url: this.url,
         fetch: customFetch,
@@ -67,7 +67,9 @@ export class StreamingTransport implements Transport {
             this.close();
             reject(this.prepareFatalError(responseStatus, errorBody));
           } else {
-            this.logger.warn(`[EventSourceTransport] Scheduling reconnect in ${info.delay}. Response status: ${responseStatus}`);
+            this.logger.warn(
+              `[EventSourceTransport] Scheduling reconnect in ${info.delay}. Response status: ${responseStatus}`,
+            );
           }
         },
         onDisconnect: () => {
@@ -75,6 +77,12 @@ export class StreamingTransport implements Transport {
         },
       });
     });
+    return Promise.race([
+      eventSourcePromise,
+      new Promise<this>((resolve) => {
+        setTimeout(() => resolve(this), timeout);
+      }),
+    ]);
   }
 
   private dispatchMessage(data: string) {

@@ -35,7 +35,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   private handlersMap: Map<string, WatchHandlerWithOptions<any>[]> = new Map();
   private transport: Transport;
   private eventEmitter = new Emitter<ClientEvents>();
-  private timeout: number = 3_000;
+  private timeout: number;
   private ready = false;
   private readyPromise: Promise<void> | undefined;
   private readyResolve: (() => void) | undefined;
@@ -71,7 +71,6 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         this.configSet = configSet;
         this.eventEmitter.emit("configsUpdated", { keys: configKeys });
         this.updateWatchers(configSet.configs);
-        this.logger.debug(`[ConfigDirectorClient] Replaced the entire configSet, kind is: ${configSet.kind}`);
       } else {
         this.configSet.configs = {
           ...this.configSet.configs,
@@ -79,11 +78,8 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
         };
         this.eventEmitter.emit("configsUpdated", { keys: configKeys });
         this.updateWatchers(configSet.configs);
-        this.logger.debug(
-          `[ConfigDirectorClient] Merged the incoming configSet map, kind is: ${configSet.kind}`,
-        );
       }
-      this.logger.debug("[ConfigDirectorClient] ConfigState updated: ", this.configSet);
+      this.logger.debug("[ConfigDirectorClient] ConfigSet updated from server:", { keys: configKeys });
     });
   }
 
@@ -103,15 +99,21 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
       }).then(() => {
         this.ready = true;
         this.eventEmitter.emit("clientReady", { action: caller });
+        this.logger.debug("[ConfigDirectorClient] Received initial payload from the server, client is ready");
       });
-      await this.transport.connect(context ?? {});
+      const startTime = new Date().getTime();
+      await this.transport.connect(context ?? {}, this.timeout);
       this.currentContext = context;
-      await Promise.race([
-        this.readyPromise,
-        new Promise<void>((resolve) => {
-          setTimeout(() => resolve(), this.timeout);
-        }),
-      ]);
+      const elapsedTime = (new Date().getTime() - startTime);
+      const remainingTimeout = this.timeout - elapsedTime;
+      if (remainingTimeout > 0) {
+        await Promise.race([
+          this.readyPromise,
+          new Promise<void>((resolve) => {
+            setTimeout(() => resolve(), remainingTimeout);
+          }),
+        ]);
+      }
       if (!this.ready) {
         const warningDetails = this.streaming
           ? "The client will continue to retry since there were no fatal errors detected. Configs will return the default value until the connection succeeds."
@@ -247,6 +249,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   }
 
   public clear() {
+    this.logger.debug("[ConfigDirectorClient] clear() has been called, removing all observers");
     this.eventEmitter.clear();
     this.handlersMap.clear();
   }
@@ -256,6 +259,7 @@ export class DefaultConfigDirectorClient implements ConfigDirectorClient {
   }
 
   public close() {
+    this.logger.debug("[ConfigDirectorClient] close() has been called, closing connection to server");
     this.transport.close();
     this.ready = false;
   }

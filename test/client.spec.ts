@@ -1,7 +1,9 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createClient, createConsoleLogger } from "../src";
 import { setupServer } from "msw/node";
 import { http } from "msw";
+
+const sleep = async (time: number) => await new Promise<void>((r) => setTimeout(() => r(), time));
 
 const SSE_URL = "https://client-sdk-api.configdirector.com/sse/v1" as const;
 const buildResponse = (stream: ReadableStream) => {
@@ -93,7 +95,7 @@ describe("ConfigDirectorClient", () => {
                   },
                 }),
               );
-            }, 500);
+            }, 200);
           },
         });
 
@@ -101,7 +103,7 @@ describe("ConfigDirectorClient", () => {
       }),
     );
 
-    const client = createClient("sdk-key", { logger });
+    const client = createClient("sdk-key", { logger, connection: { timeout: 100 } });
     const subscription = new Promise<string>((resolve) => {
       client.watch("example-config", "DummyDefault", (value) => {
         resolve(value);
@@ -109,9 +111,9 @@ describe("ConfigDirectorClient", () => {
     });
     await client.initialize();
 
-    expect(client.getValue("example-config", "Hello")).toBe("Bye");
+    expect(client.getValue("example-config", "Hello")).toBe("Hello");
     expect(await subscription).toBe("Bye");
-    expect(client.getValue("example-config", 20)).toBe("Bye");
+    expect(client.getValue("example-config", "Default")).toBe("Bye");
   });
 
   it("publishes 'configsUpdated' each time the server sends updates", async () => {
@@ -205,5 +207,42 @@ describe("ConfigDirectorClient", () => {
       name: "Bob",
       traits: { email: "bob@example.com" },
     });
+  });
+
+  it("returns from initialize if the timeout is reached, but eventually connects", async () => {
+    server.use(
+      http.post(SSE_URL, async () => {
+        await sleep(100);
+
+        const stream = new ReadableStream({
+          start(controller) {
+            setTimeout(() => {
+              controller.enqueue(
+                message({
+                  environmentId: 100,
+                  projectId: 200,
+                  kind: "delta",
+                  configs: {
+                    "example-config": { id: 1000, key: "example-config", type: "string", value: "Bye" },
+                  },
+                }),
+              );
+            }, 100);
+          },
+        });
+
+        return buildResponse(stream);
+      }),
+    );
+
+    vi.spyOn(logger, "warn");
+    const client = createClient("sdk-key", { logger, connection: { timeout: 150 } });
+
+    await client.initialize();
+
+    expect(client.isReady).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Timed out"));
+    await sleep(100);
+    expect(client.isReady).toBe(true);
   });
 });

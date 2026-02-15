@@ -7,6 +7,7 @@ import type {
 } from "./types";
 import { Emitter } from "./Emitter";
 import { ConfigDirectorConnectionError, isFetchErrorFatal } from "./errors";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 export class PullTransport implements Transport {
   private logger: ConfigDirectorLogger;
@@ -20,7 +21,7 @@ export class PullTransport implements Transport {
     this.url = new URL("pull/v1", options.baseUrl);
   }
 
-  public async connect(context: ConfigDirectorContext): Promise<this> {
+  public async connect(context: ConfigDirectorContext, timeout: number): Promise<this> {
     if (this.fatalError) {
       this.logger.warn(
         "[PullTransport] There was a prior unrecoverable error. Ignoring attempt to reconnect.",
@@ -29,7 +30,7 @@ export class PullTransport implements Transport {
     }
 
     try {
-      const response = await fetch(this.url, {
+      const response = await fetchWithTimeout(timeout, this.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -37,7 +38,7 @@ export class PullTransport implements Transport {
           metaContext: this.options.metaContext,
           clientSdkKey: this.options.clientSdkKey,
         }),
-      });
+      }, this.logger);
 
       if (!response.ok) {
         if (this.isStatusFatal(response.status)) {

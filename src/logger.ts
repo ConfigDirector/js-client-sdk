@@ -8,11 +8,34 @@ const LEVELS: Record<ConfigDirectorLoggingLevel, number> = {
   debug: 3,
 };
 
-export class DefaultConsoleLogger implements ConfigDirectorLogger {
-  private level: ConfigDirectorLoggingLevel;
+const buildDateFormatter = () => {
+  const baseOptions: Intl.DateTimeFormatOptions = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  };
 
-  constructor(level?: ConfigDirectorLoggingLevel) {
-    this.level = level ?? "warn";
+  try {
+    return new Intl.DateTimeFormat(
+      undefined,
+      { ...baseOptions, fractionalSecondDigits: 3 } as Intl.DateTimeFormatOptions,
+    );
+  } catch {
+    return new Intl.DateTimeFormat(undefined, baseOptions);
+  }
+};
+
+export class DefaultConsoleLogger implements ConfigDirectorLogger {
+  private readonly dateFormatter;
+
+  constructor(private readonly level: ConfigDirectorLoggingLevel, private readonly decorator: ConfigDirectorLogMessageDecorator) {
+    this.level = level;
+    this.decorator = decorator;
+    this.dateFormatter = buildDateFormatter();
   }
 
   debug(message: string, ...args: any): void {
@@ -31,9 +54,9 @@ export class DefaultConsoleLogger implements ConfigDirectorLogger {
     this.log(console.error, "error", message, ...args);
   }
 
-  private log(loggerFunction: (...args: any) => void, level: ConfigDirectorLoggingLevel, ...args: any) {
+  private log(loggerFunction: (...args: any) => void, level: ConfigDirectorLoggingLevel, message: string, ...args: any) {
     if (LEVELS[this.level] >= LEVELS[level]) {
-      loggerFunction(...args);
+      loggerFunction(`[${this.dateFormatter.format(new Date())}] ${this.decorator?.decorateMessage(message)}`, ...args);
     }
   }
 }
@@ -44,38 +67,9 @@ class LogMessageDecorator implements ConfigDirectorLogMessageDecorator {
   }
 }
 
-export class ConfigDirectorLoggerDecorator implements ConfigDirectorLogger {
-  constructor(
-    private readonly logger: ConfigDirectorLogger,
-    private readonly decorator: ConfigDirectorLogMessageDecorator,
-  ) {
-    this.logger = logger;
-    this.decorator = decorator;
-  }
-
-  debug(message: string, ...args: any): void {
-    this.logger.debug(this.decorator.decorateMessage(message), ...args);
-  }
-
-  info(message: string, ...args: any): void {
-    this.logger.info(this.decorator.decorateMessage(message), ...args);
-  }
-
-  warn(message: string, ...args: any): void {
-    this.logger.warn(this.decorator.decorateMessage(message), ...args);
-  }
-
-  error(message: string, ...args: any): void {
-    this.logger.error(this.decorator.decorateMessage(message), ...args);
-  }
-}
-
 export const createDefaultLogger = (
   level?: ConfigDirectorLoggingLevel,
   messageDecorator?: ConfigDirectorLogMessageDecorator,
 ) => {
-  return new ConfigDirectorLoggerDecorator(
-    new DefaultConsoleLogger(level),
-    messageDecorator ?? new LogMessageDecorator(),
-  );
+  return new DefaultConsoleLogger(level ?? "warn", messageDecorator ?? new LogMessageDecorator());
 };

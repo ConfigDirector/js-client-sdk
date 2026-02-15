@@ -161,7 +161,7 @@ export type TransportEvents = {
 };
 
 export interface Transport extends EventProvider<TransportEvents> {
-  connect(context: ConfigDirectorContext): Promise<this>;
+  connect(context: ConfigDirectorContext, timeout: number): Promise<this>;
   close(): void;
   dispose(): void;
 }
