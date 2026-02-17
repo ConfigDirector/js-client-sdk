@@ -1,6 +1,6 @@
 {
   "name": "@configdirector/client-sdk",
-  "version": "0.0.34",
+  "version": "0.1.0",
   "description": "Javascript client SDK for ConfigDirector. ConfigDirector is a remote configuration and feature flag service.",
   "license": "MIT",
   "author": "ConfigDirector",
