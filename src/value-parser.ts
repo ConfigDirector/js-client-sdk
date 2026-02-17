@@ -1,6 +1,6 @@
 import type { ConfigState, ConfigValueType, EvaluationReason } from "./types";
 
-type RequestedType =
+type NativeType =
   | "string"
   | "number"
   | "bigint"
@@ -12,7 +12,7 @@ type RequestedType =
 
 type ParseResult<T extends ConfigValueType> = {
   parsedValue: T;
-  requestedType: RequestedType | string;
+  requestedType: NativeType | string;
   usedDefault: boolean;
   reason: EvaluationReason;
 };
@@ -36,10 +36,14 @@ export const getRequestedType = <T extends ConfigValueType>(defaultValue: T): st
   return baseType;
 };
 
-export function parseConfigValue<T extends ConfigValueType>(
+const isNumericNativeType = (requestedType: NativeType): boolean => {
+  return requestedType === "number" || requestedType === "bigint";
+};
+
+export const parseConfigValue = <T extends ConfigValueType>(
   configState: ConfigState,
   defaultValue: T,
-): ParseResult<T> {
+): ParseResult<T> => {
   const value = configState.value;
   const requestedType = getRequestedType(defaultValue);
 
@@ -52,7 +56,7 @@ export function parseConfigValue<T extends ConfigValueType>(
     };
   }
 
-  if (requestedType === "string") {
+  if (typeof defaultValue === "string") {
     return {
       parsedValue: value as T,
       requestedType,
@@ -61,7 +65,7 @@ export function parseConfigValue<T extends ConfigValueType>(
     };
   }
 
-  if (requestedType === "boolean" && configState.type === "boolean") {
+  if (typeof defaultValue === "boolean" && configState.type === "boolean") {
     const boolValue = parseConfigBoolean(value);
     const hasBoolean = typeof boolValue === "boolean";
     return {
@@ -72,8 +76,18 @@ export function parseConfigValue<T extends ConfigValueType>(
     };
   }
 
-  if (requestedType === "number" && configState.type === "number") {
-    const numValue = parseConfigNumber(value);
+  if (isNumericNativeType(typeof defaultValue) && configState.type === "integer") {
+    const numValue = parseConfigInteger(value);
+    const hasNumber = typeof numValue === "number";
+    return {
+      parsedValue: (hasNumber ? numValue : defaultValue) as T,
+      requestedType,
+      usedDefault: !hasNumber,
+      reason: hasNumber ? "found-match" : "invalid-number",
+    };
+  }
+  if (isNumericNativeType(typeof defaultValue) && (configState.type === "float" || configState.type === "enum" )) {
+    const numValue = parseConfigFloat(value);
     const hasNumber = typeof numValue === "number";
     return {
       parsedValue: (hasNumber ? numValue : defaultValue) as T,
@@ -89,9 +103,9 @@ export function parseConfigValue<T extends ConfigValueType>(
     usedDefault: false,
     reason: "found-match",
   };
-}
+};
 
-function parseConfigBoolean(value: string): boolean | undefined {
+const parseConfigBoolean = (value: string): boolean | undefined => {
   if (!value) {
     return;
   }
@@ -99,20 +113,27 @@ function parseConfigBoolean(value: string): boolean | undefined {
   if (lowerValue != "true" && lowerValue != "false") {
     return;
   }
-
   return lowerValue === "true";
-}
+};
 
-function parseConfigNumber(value: string): number | undefined {
+const parseConfigInteger = (value: string): number | undefined => {
   if (!value) {
     return;
   }
-
-  const num = Number.parseFloat(value);
-
+  const num = Number.parseInt(value);
   if (isNaN(num) || !isFinite(num)) {
     return;
   }
-
   return num;
-}
+};
+
+const parseConfigFloat = (value: string): number | undefined => {
+  if (!value) {
+    return;
+  }
+  const num = Number.parseFloat(value);
+  if (isNaN(num) || !isFinite(num)) {
+    return;
+  }
+  return num;
+};

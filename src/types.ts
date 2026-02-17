@@ -4,7 +4,7 @@ export type ConfigEnumLikeType = { [key: string]: string | number };
 
 export type ConfigValueType = string | number | boolean | object | ConfigEnumLikeType;
 
-export type ConfigType = "custom" | "boolean" | "string" | "number" | "enum" | "url" | "json";
+export type ConfigType = "custom" | "boolean" | "string" | "integer" | "float" | "enum" | "url" | "json";
 
 export type ConfigState = {
   id: string;
