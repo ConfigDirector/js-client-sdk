@@ -150,7 +150,7 @@ export type WatchHandler<T extends ConfigValueType> = (message: T) => void;
 /**
  * The ConfigDirector SDK client object.
  *
- * Applications should create a single instance of {@link DefaultConfigDirectorClient}, and call
+ * Applications should create a single instance of `ConfigDirectorClient`, and call
  * {@link initialize} during application initialization.
  *
  * After initialization, to update the user's context, so that targeting rules are evaluated
@@ -190,7 +190,7 @@ export interface ConfigDirectorClient extends EventProvider<ClientEvents> {
   /**
    * Evaluates a config and returns its value based on the current context and targeting rules
    *
-   * @returns The evaluated config value, or the defaultValue if the config state was unavailable
+   * @returns The evaluated config value, or the `defaultValue` if the config state was unavailable
    * @param configKey The config key to evaluate
    * @param defaultValue The default value to be returned if the config state is unavailable. For
    * example, if the client cannot connect to the server due to network conditions, or if getValue
@@ -212,12 +212,12 @@ export interface ConfigDirectorClient extends EventProvider<ClientEvents> {
   watch<T extends ConfigValueType>(configKey: string, defaultValue: T, callback: WatchHandler<T>): () => void;
 
   /**
-   * Removes a particular subscriber to the given configKey, or all subscribers if no callback
+   * Removes a particular subscriber to the given `configKey`, or all subscribers if no callback
    * is provided.
    *
    * @param configKey The config key to remove subscribers from
    * @param callback The subscriber to be removed. If not provided, all subscribers are removed for
-   * the given configKey.
+   * the given `configKey`.
    */
   unwatch<T extends ConfigValueType>(configKey: string, callback?: WatchHandler<T>): void;
 
