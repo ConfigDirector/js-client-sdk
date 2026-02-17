@@ -82,16 +82,59 @@ export type SdkMetaContext = {
   userAgent?: string;
 };
 
+/**
+ * Configuration options for the {@link ConfigDirectorClient}
+ */
 export type ConfigDirectorClientOptions = {
+  /**
+   * Application metadata that remains constant through the lifetime of the connection
+   */
   metadata?: {
     appVersion?: string;
     appName?: string;
   };
+  /**
+   * Connection options
+   */
   connection?: {
-    timeout?: number;
-    url?: string;
+    /**
+     * Whether to open a streaming connection or use a one-time pull of configuration state.
+     * If set to true, the streaming connection will remain open and receive updates whenever
+     * config state is updated on the ConfigDirector dashboard.
+     * When set to false, there will be an initial request to retrieve config state during
+     * initialization, and an additional request whenever {@link ConfigDirectorClient.updateContext}
+     * is called. But not updates will be received after those requests.
+     *
+     * Defaults to true (streaming connection)
+     */
     streaming?: boolean;
+    /**
+     * The timeout, in milliseconds, to be used in initialization and when updating the context.
+     * If streaming is enabled, the operation (initialization or context update) may still succeed
+     * after it times out if no unrecoverable errors are encountered (like an invalid SDK key).
+     * If streaming is disabled, if the operation times out, it will not be retried.
+     */
+    timeout?: number;
+    /**
+     * The base URL to the ConfigDirector SDK server. To be used only when needing to route through a
+     * proxy to connect to the ConfigDirector SDK server. Please refer to the docs on how to configure
+     * a proxy for the client SDK.
+     */
+    url?: string;
   };
+  /**
+   * A logger that implements {@link ConfigDirectorLogger}. It defaults to the ConfigDirector console
+   * logger set to 'warn' level.
+   *
+   * The log level of the default logger can be adjusted by creating a default logger with the desired
+   * level and providing it in this property:
+   * @example
+   * import { createClient, createConsoleLogger } from "@configdirector/client-sdk";
+   * const client = createClient(
+   *   "YOUR-SDK-KEY",
+   *   { logger: createConsoleLogger("debug") },
+   * );
+   */
   logger?: ConfigDirectorLogger;
 };
 
@@ -136,16 +179,59 @@ export interface ConfigDirectorClient extends EventProvider<ClientEvents> {
    */
   updateContext(context: ConfigDirectorContext): Promise<void>;
 
+  /**
+   * Returns whether or not the client is ready after calling {@link initialize} or {@link updateContext}
+   *
+   * The definition of ready is that the connection to the server was successful, and config state
+   * was received.
+   */
   get isReady(): boolean;
 
+  /**
+   * Evaluates a config and returns its value based on the current context and targeting rules
+   *
+   * @returns The evaluated config value, or the defaultValue if the config state was unavailable
+   * @param configKey The config key to evaluate
+   * @param defaultValue The default value to be returned if the config state is unavailable. For
+   * example, if the client cannot connect to the server due to network conditions, or if getValue
+   * is called before initialization is done.
+   */
   getValue<T extends ConfigValueType>(configKey: string, defaultValue: T): T;
 
+  /**
+   * Watches for changes to a a config evaluation value. Whenever the config value changes, the
+   * provided callback function will be called with the new value. Changes can happen due to updates
+   * to the config in the ConfigDirector dashboard, or if the context is updated via {@link updateContext}.
+   *
+   * @returns An 'unwatch' function that can be called to remove the subscriber
+   *
+   * @param configKey The config key to watch
+   * @param defaultValue The default value to be referenced if the config state is unavailable
+   * @param callback The callback function to be called whenever the config value is updated
+   */
   watch<T extends ConfigValueType>(configKey: string, defaultValue: T, callback: WatchHandler<T>): () => void;
 
+  /**
+   * Removes a particular subscriber to the given configKey, or all subscribers if no callback
+   * is provided.
+   *
+   * @param configKey The config key to remove subscribers from
+   * @param callback The subscriber to be removed. If not provided, all subscribers are removed for
+   * the given configKey.
+   */
   unwatch<T extends ConfigValueType>(configKey: string, callback?: WatchHandler<T>): void;
 
+  /**
+   * Removes all subscribers from all config keys
+   */
   unwatchAll(): void;
 
+  /**
+   * Disposes of the client. All connections are closed, and all event and config key subscribers
+   * are removed.
+   *
+   * Intended to be called when your application shuts down
+   */
   dispose(): void;
 }
 
